@@ -1,5 +1,5 @@
 <template>
-  <div class="max-w-6xl mx-auto p-6">
+  <div class="mx-auto p-6">
     <h2 class="text-3xl font-bold mb-6 text-center">Random Team Picker ({{ teamCount }} Teams)</h2>
 
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
@@ -29,7 +29,10 @@
             <div class="text-sm font-semibold">
               {{ team.key }} size
             </div>
-            <input type="number" v-model.number="teamSizes[team.key]" min="0" class="w-24 mt-1 p-1 rounded border" />
+            <!-- Disabled because fixed 5 males + 5 females -->
+            <input type="number" v-model.number="teamSizes[team.key]" min="0" class="w-24 mt-1 p-1 rounded border"
+              disabled />
+            <div class="text-xs text-gray-500 mt-1">Fixed 10 (5 Male + 5 Female)</div>
           </div>
         </div>
 
@@ -46,7 +49,8 @@
         </div>
 
         <div class="text-sm text-gray-600">
-          Total members: <strong>{{ members.length }}</strong>
+          Total members: <strong>{{ members.length }}</strong> (Male: {{ maleMembers.length }}, Female: {{
+            femaleMembers.length }})
         </div>
 
         <div v-if="warning" class="text-sm text-yellow-700">{{ warning }}</div>
@@ -59,17 +63,25 @@
       <div v-for="team in teams" :key="team.key" class="p-4 rounded-xl border shadow-lg" :class="team.bg">
 
         <h3 class="font-semibold mb-2 text-lg">
-          {{ team.key }} ({{ teamSizes[team.key] }})
+          {{ team.key }}
         </h3>
-
         <ul class="space-y-2">
-          <li v-for="(m, i) in assignments[team.key]" :key="i" class="flex items-center justify-between">
-
-            <div>{{ i + 1 }}. {{ m }}</div>
-
-            <button @click="toggleLock(team.key, m)" class="text-xs px-2 py-1 rounded border cursor-pointer"
-              :class="locked[team.key].has(m) ? 'bg-yellow-200' : ''">
-              {{ locked[team.key].has(m) ? 'Locked' : 'Lock' }}
+          <li v-for="(member, i) in combinedAssignments[team.key]" :key="`member-${i}`"
+            class="flex items-center justify-between">
+            <div>
+              {{ i + 1 }}. {{ member.name }}
+              <!-- <span v-if="member.gender === 'male'" class="text-blue-600 ml-2 text-xs font-semibold">
+                (M)
+              </span>
+              <span v-else-if="member.gender === 'female'" class="text-pink-600 ml-2 text-xs font-semibold">
+                (F)
+              </span> -->
+            </div>
+            <button @click="toggleLock(team.key, member.name, member.gender)"
+              class="text-xs px-2 py-1 rounded border cursor-pointer"
+              :class="(member.gender === 'male' ? lockedMale[team.key] : lockedFemale[team.key]).has(member.name) ? 'bg-yellow-200' : ''">
+              {{ (member.gender === 'male' ? lockedMale[team.key] : lockedFemale[team.key]).has(member.name) ? 'Locked'
+                : 'Lock' }}
             </button>
           </li>
         </ul>
@@ -82,64 +94,77 @@
     </div>
   </div>
 </template>
+
 <script setup>
 import { ref, computed } from 'vue'
 
-// ❗ SET YOUR TEAM COUNT HERE (YOU WANT 5 TEAMS)
+// Number of teams
 const teamCount = 5
 
-// Auto-generate team labels: A, B, C, D, E...
+// Generate teams with colors
 const teams = Array.from({ length: teamCount }, (_, i) => {
   const key = `Team ${String.fromCharCode(65 + i)}`
   return {
     key,
-    bg: ['bg-blue-50', 'bg-green-50', 'bg-purple-50', 'bg-pink-50', 'bg-yellow-50', 'bg-orange-50'][i] || 'bg-gray-100'
+    bg: ['bg-blue-50', 'bg-green-50', 'bg-purple-50', 'bg-pink-50', 'bg-yellow-50'][i] || 'bg-gray-100'
   }
 })
 
 const membersText = ref('')
 const warning = ref('')
 
-// Dynamic sizes
+// Fixed team sizes (disabled input, fixed 10 per team)
 const teamSizes = ref({})
 teams.forEach(t => teamSizes.value[t.key] = 10)
 
-// Storage for locks and results
-const locked = ref({})
-const assignments = ref({})
-teams.forEach(t => {
-  locked.value[t.key] = new Set()
-  assignments.value[t.key] = []
-})
+// Helper functions for gender detection
+function isMale(name) {
+  return /\b(U|Mg|Ko)\b/.test(name)
+}
+function isFemale(name) {
+  return /\b(Ma|Daw)\b/.test(name)
+}
 
+// Parse all members
 const members = computed(() =>
   membersText.value.split(/\r?\n/)
     .map(s => s.trim())
     .filter(Boolean)
 )
 
+// Separate by gender
+const maleMembers = computed(() =>
+  members.value.filter(m => isMale(m))
+)
+
+const femaleMembers = computed(() =>
+  members.value.filter(m => isFemale(m))
+)
+
+// Locked male and female members per team
+const lockedMale = ref({})
+const lockedFemale = ref({})
+teams.forEach(t => {
+  lockedMale.value[t.key] = new Set()
+  lockedFemale.value[t.key] = new Set()
+})
+
+// Assignments for male and female separately
+const assignmentsMale = ref({})
+const assignmentsFemale = ref({})
+const assignments = ref({})
+teams.forEach(t => {
+  assignmentsMale.value[t.key] = []
+  assignmentsFemale.value[t.key] = []
+  assignments.value[t.key] = []
+})
+
+// Whether any assignment exists
 const hasAssignments = computed(() =>
   teams.some(t => assignments.value[t.key].length > 0)
 )
 
-function useSample() {
-  membersText.value = Array.from({ length: 50 })
-    .map((_, i) => `Member ${i + 1}`)
-    .join('\n')
-}
-
-function clearMembers() {
-  membersText.value = ''
-  resetAll()
-}
-
-function resetAll() {
-  teams.forEach(t => {
-    assignments.value[t.key] = []
-    locked.value[t.key] = new Set()
-  })
-}
-
+// Shuffle helper
 function shuffle(arr) {
   const a = [...arr]
   for (let i = a.length - 1; i > 0; i--) {
@@ -149,73 +174,152 @@ function shuffle(arr) {
   return a
 }
 
+function resetAll() {
+  teams.forEach(t => {
+    assignments.value[t.key] = []
+    assignmentsMale.value[t.key] = []
+    assignmentsFemale.value[t.key] = []
+    lockedMale.value[t.key] = new Set()
+    lockedFemale.value[t.key] = new Set()
+  })
+  warning.value = ''
+}
+
+function useSample() {
+  const malePrefixes = ['U', 'Mg', 'Ko']
+  const femalePrefixes = ['Ma', 'Daw']
+
+  const males = Array.from({ length: 25 }, (_, i) => {
+    // Cycle through prefixes
+    const prefix = malePrefixes[i % malePrefixes.length]
+    return `${prefix} Member ${i + 1}`
+  })
+
+  const females = Array.from({ length: 25 }, (_, i) => {
+    const prefix = femalePrefixes[i % femalePrefixes.length]
+    return `${prefix} Member ${i + 1}`
+  })
+
+  // Combine and shuffle so males and females are mixed
+  const combined = [...males, ...females]
+
+  // Optional shuffle for mixed order
+  function shuffle(arr) {
+    const a = [...arr]
+    for (let i = a.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1))
+        ;[a[i], a[j]] = [a[j], a[i]]
+    }
+    return a
+  }
+
+  membersText.value = shuffle(combined).join('\n')
+}
+
+function clearMembers() {
+  membersText.value = ''
+  resetAll()
+}
+
+const enoughMembers = computed(() => {
+  // Need at least 5 males * teams and 5 females * teams
+  return maleMembers.value.length >= teamCount * 5 &&
+    femaleMembers.value.length >= teamCount * 5
+})
+
 function generate() {
   warning.value = ''
 
-  const totalNeeded = teams.reduce(
-    (sum, t) => sum + teamSizes.value[t.key], 0
-  )
+  const malesNeeded = teamCount * 5
+  const femalesNeeded = teamCount * 5
 
-  if (members.value.length < totalNeeded) {
-    warning.value = `Not enough members. Need ${totalNeeded}, have ${members.value.length}.`
+  if (maleMembers.value.length < malesNeeded) {
+    warning.value = `Not enough male members. Need ${malesNeeded}, have ${maleMembers.value.length}.`
+    resetAll()
+    return
+  }
+  if (femaleMembers.value.length < femalesNeeded) {
+    warning.value = `Not enough female members. Need ${femalesNeeded}, have ${femaleMembers.value.length}.`
     resetAll()
     return
   }
 
-  // all locked members
-  const lockedMembers = new Set()
-  teams.forEach(t => locked.value[t.key].forEach(m => lockedMembers.add(m)))
-
-  const unlocked = shuffle(
-    members.value.filter(m => !lockedMembers.has(m))
-  )
-
-  let idx = 0
-
-  // assign per team
+  // Collect locked males and females globally
+  const lockedMalesGlobal = new Set()
+  const lockedFemalesGlobal = new Set()
   teams.forEach(t => {
-    const size = teamSizes.value[t.key]
-    const teamArr = []
-
-    locked.value[t.key].forEach(m => teamArr.push(m))
-
-    while (teamArr.length < size) {
-      teamArr.push(unlocked[idx++])
-    }
-
-    assignments.value[t.key] = teamArr
+    lockedMale.value[t.key].forEach(m => lockedMalesGlobal.add(m))
+    lockedFemale.value[t.key].forEach(f => lockedFemalesGlobal.add(f))
   })
 
-  // === REMOVE assigned members from textarea ===
+  // Unlocked males and females shuffled
+  const unlockedMales = shuffle(maleMembers.value.filter(m => !lockedMalesGlobal.has(m)))
+  const unlockedFemales = shuffle(femaleMembers.value.filter(f => !lockedFemalesGlobal.has(f)))
+
+  let maleIndex = 0
+  let femaleIndex = 0
+
+  // Assign per team males and females
+  teams.forEach(t => {
+    const maleTeamArr = []
+    const femaleTeamArr = []
+
+    // Add locked males/females first
+    lockedMale.value[t.key].forEach(m => maleTeamArr.push(m))
+    lockedFemale.value[t.key].forEach(f => femaleTeamArr.push(f))
+
+    while (maleTeamArr.length < 5) {
+      maleTeamArr.push(unlockedMales[maleIndex++])
+    }
+    while (femaleTeamArr.length < 5) {
+      femaleTeamArr.push(unlockedFemales[femaleIndex++])
+    }
+
+    assignmentsMale.value[t.key] = maleTeamArr
+    assignmentsFemale.value[t.key] = femaleTeamArr
+    // Combine for generic assignment (optional, for export or else)
+    assignments.value[t.key] = [...maleTeamArr, ...femaleTeamArr]
+  })
+
+  // Remove assigned members from textarea
   const assignedMembers = new Set()
   teams.forEach(t => {
     assignments.value[t.key].forEach(m => assignedMembers.add(m))
   })
 
-  // Keep only members not assigned
-  membersText.value = members.value
-    .filter(m => !assignedMembers.has(m))
-    .join('\n')
+  membersText.value = members.value.filter(m => !assignedMembers.has(m)).join('\n')
 }
 
-const enoughMembers = computed(() => {
-  const totalNeeded = teams.reduce(
-    (sum, t) => sum + teamSizes.value[t.key], 0
-  )
-  return members.value.length >= totalNeeded
+function toggleLock(teamKey, member, gender) {
+  if (gender === 'male') {
+    const set = lockedMale.value[teamKey]
+    set.has(member) ? set.delete(member) : set.add(member)
+  } else {
+    const set = lockedFemale.value[teamKey]
+    set.has(member) ? set.delete(member) : set.add(member)
+  }
+}
+
+const combinedAssignments = computed(() => {
+  const combined = {}
+  teams.forEach(t => {
+    // Map male members to {name, gender}
+    const males = assignmentsMale.value[t.key].map(name => ({ name, gender: 'male' }))
+    // Map female members similarly
+    const females = assignmentsFemale.value[t.key].map(name => ({ name, gender: 'female' }))
+    // Combine and keep order: males then females (or shuffle if you want)
+    combined[t.key] = [...males, ...females]
+  })
+  return combined
 })
 
-function toggleLock(teamKey, member) {
-  const set = locked.value[teamKey]
-  set.has(member) ? set.delete(member) : set.add(member)
-}
-
 function exportCsv() {
-  const maxLen = Math.max(
-    ...teams.map(t => assignments.value[t.key].length)
-  )
+  // Find max length of combined lists (should be 10 fixed, but dynamic if needed)
+  const maxLen = Math.max(...teams.map(t => assignments.value[t.key].length))
 
+  // Header with team names only (no male/female separate columns)
   const header = teams.map(t => t.key).join(',')
+
   const rows = [header]
 
   for (let i = 0; i < maxLen; i++) {
@@ -232,4 +336,5 @@ function exportCsv() {
   a.click()
   URL.revokeObjectURL(url)
 }
+
 </script>
